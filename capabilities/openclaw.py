@@ -215,7 +215,7 @@ session_keyでセッションを指定（デフォルト: "main"）。"""
             return CapabilityResult.fail(f"OpenClaw通信エラー: {str(e)}")
 
     def execute(self, message: str, session_key: str = "main") -> CapabilityResult:
-        """同期インターフェース（OpenAI Realtime APIは同期のみサポート）"""
+        """同期インターフェース（Capability実行は同期で行う）"""
         # 非同期関数を同期コンテキストで実行
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)

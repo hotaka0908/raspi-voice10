@@ -59,38 +59,6 @@ class CapabilityExecutor:
         """Capabilityを取得"""
         return self._capabilities.get(name)
 
-    def get_openai_tools(self) -> List[Dict[str, Any]]:
-        """OpenAI Realtime API用のツール定義を取得"""
-        tools = []
-
-        for cap in self._capabilities.values():
-            tool_def = cap.get_tool_definition()
-            params = tool_def.get("parameters", {})
-            properties = params.get("properties", {})
-            required = params.get("required", [])
-
-            # OpenAI形式のパラメータスキーマ
-            schema_props = {}
-            for prop_name, prop in properties.items():
-                schema_props[prop_name] = {
-                    "type": prop.get("type", "string"),
-                    "description": prop.get("description", "")
-                }
-
-            tool = {
-                "type": "function",
-                "name": tool_def["name"],
-                "description": tool_def["description"],
-                "parameters": {
-                    "type": "object",
-                    "properties": schema_props,
-                    "required": required if required else []
-                }
-            }
-            tools.append(tool)
-
-        return tools
-
     def get_gemini_tools(self) -> List[Dict[str, Any]]:
         """Gemini Live API用のツール定義を取得"""
         function_declarations = []

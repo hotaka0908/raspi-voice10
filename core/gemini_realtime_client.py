@@ -62,6 +62,9 @@ class GeminiRealtimeClient:
                     )
                 )
             ),
+            "realtime_input_config": {
+                "automatic_activity_detection": {"disabled": True}
+            },
             "tools": self.executor.get_gemini_tools(),
         }
 
@@ -93,7 +96,18 @@ class GeminiRealtimeClient:
 
     async def send_activity_start(self) -> None:
         """音声活動開始を通知"""
+        if not self.is_connected or not self.session:
+            return
+
         self._is_recording = True
+
+        try:
+            # 手動アクティビティ検出: 録音開始を通知
+            await self.session.send_realtime_input(
+                activity_start=types.ActivityStart()
+            )
+        except Exception as e:
+            logger.error(f"activity_start送信エラー: {e}")
 
     async def send_activity_end(self) -> None:
         """音声活動終了を通知（レスポンス生成をトリガー）"""
@@ -103,9 +117,9 @@ class GeminiRealtimeClient:
         self._is_recording = False
 
         try:
-            # アクティビティ終了を通知（ターン完了）
-            await self.session.send_client_content(
-                turn_complete=True
+            # 手動アクティビティ検出: 録音終了を通知
+            await self.session.send_realtime_input(
+                activity_end=types.ActivityEnd()
             )
         except Exception as e:
             logger.error(f"activity_end送信エラー: {e}")
@@ -123,7 +137,10 @@ class GeminiRealtimeClient:
             try:
                 # Gemini Live APIにリアルタイムで音声を送信
                 await self.session.send_realtime_input(
-                    audio={"data": audio_data, "mime_type": "audio/pcm"}
+                    audio=types.Blob(
+                        data=audio_data,
+                        mime_type=f"audio/pcm;rate={Config.SEND_SAMPLE_RATE}"
+                    )
                 )
             except Exception as e:
                 logger.error(f"音声送信エラー: {e}")
@@ -135,7 +152,10 @@ class GeminiRealtimeClient:
 
         try:
             await self.session.send_client_content(
-                turns={"parts": [{"text": text}]},
+                turns=types.Content(
+                    role="user",
+                    parts=[types.Part(text=text)]
+                ),
                 turn_complete=True
             )
         except Exception as e:
