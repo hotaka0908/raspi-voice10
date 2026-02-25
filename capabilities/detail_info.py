@@ -8,7 +8,7 @@ import threading
 from typing import Any, Dict
 
 from .base import Capability, CapabilityCategory, CapabilityResult
-from .vision import get_last_capture, clear_last_capture, get_openai_client
+from .vision import get_last_capture, clear_last_capture, get_gemini_client
 from .communication import get_firebase_messenger
 
 
@@ -56,18 +56,14 @@ class SendDetailInfo(Capability):
         if firebase is None:
             return CapabilityResult.fail("今はスマホに送れません")
 
-        # 3. GPT-4o Vision で詳細分析
+        # 3. Gemini Vision で詳細分析
         try:
-            client = get_openai_client()
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": f"""この画像から読み取れる情報（文字、ロゴ、署名、特徴など）を手がかりに、写っているものを特定し、詳しい情報を提供してください。
+            from google.genai import types
+            from config import Config
+
+            client = get_gemini_client()
+
+            prompt = f"""この画像から読み取れる情報（文字、ロゴ、署名、特徴など）を手がかりに、写っているものを特定し、詳しい情報を提供してください。
 
 元の質問: {context.prompt}
 簡潔な回答: {context.brief_analysis}
@@ -97,21 +93,29 @@ class SendDetailInfo(Capability):
 （1-2文で豆知識）
 
 日本語で回答してください。"""
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{context.image_base64}",
-                                    "detail": "high"
-                                }
-                            }
+
+            response = client.models.generate_content(
+                model=Config.VISION_MODEL,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part(text=prompt),
+                            types.Part(
+                                inline_data=types.Blob(
+                                    mime_type="image/jpeg",
+                                    data=context.image_data
+                                )
+                            )
                         ]
-                    }
+                    )
                 ],
-                max_tokens=1500
+                config=types.GenerateContentConfig(
+                    max_output_tokens=1500
+                )
             )
 
-            detail_analysis = response.choices[0].message.content
+            detail_analysis = response.text
 
         except Exception:
             return CapabilityResult.fail("詳細情報を取得できませんでした")

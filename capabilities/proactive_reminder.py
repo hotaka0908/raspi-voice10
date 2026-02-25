@@ -41,7 +41,7 @@ FIREBASE_DATABASE_URL = os.getenv("FIREBASE_DATABASE_URL", "")
 
 # Vision機能
 try:
-    from .vision import capture_image_raw, get_openai_client
+    from .vision import capture_image_raw, get_gemini_client
     VISION_AVAILABLE = True
 except ImportError:
     VISION_AVAILABLE = False
@@ -204,7 +204,7 @@ class FirebaseLocationClient:
 
 
 class MovementDetector:
-    """OpenAI Vision APIで画像比較による移動検知"""
+    """Gemini Vision APIで画像比較による移動検知"""
 
     def compare_images(self, image1: bytes, image2: bytes) -> Dict[str, Any]:
         """
@@ -217,11 +217,9 @@ class MovementDetector:
             return {"moved": False, "confidence": 0.0, "reason": "Vision API利用不可"}
 
         try:
-            client = get_openai_client()
+            from google.genai import types
 
-            # Base64エンコード
-            image1_b64 = base64.b64encode(image1).decode('utf-8')
-            image2_b64 = base64.b64encode(image2).decode('utf-8')
+            client = get_gemini_client()
 
             prompt = """これは同じカメラで撮影された2枚の写真です。
 撮影者が別の場所に移動したかどうかを判定してください。
@@ -237,35 +235,35 @@ class MovementDetector:
   "reason": "理由（短く）"
 }"""
 
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image1_b64}",
-                                    "detail": "low"
-                                }
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image2_b64}",
-                                    "detail": "low"
-                                }
-                            }
+            response = client.models.generate_content(
+                model=Config.VISION_MODEL,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part(text=prompt),
+                            types.Part(
+                                inline_data=types.Blob(
+                                    mime_type="image/jpeg",
+                                    data=image1
+                                )
+                            ),
+                            types.Part(
+                                inline_data=types.Blob(
+                                    mime_type="image/jpeg",
+                                    data=image2
+                                )
+                            )
                         ]
-                    }
+                    )
                 ],
-                max_tokens=200,
-                response_format={"type": "json_object"}
+                config=types.GenerateContentConfig(
+                    max_output_tokens=200,
+                    response_mime_type="application/json"
+                )
             )
 
-            result_text = response.choices[0].message.content
+            result_text = response.text
             result = json.loads(result_text)
 
             return {

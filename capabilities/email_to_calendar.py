@@ -18,12 +18,13 @@ from config import Config
 
 logger = logging.getLogger("email_to_calendar")
 
-# OpenAI API
+# Gemini API
 try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
+    from google import genai
+    from google.genai import types
+    GEMINI_AVAILABLE = True
 except ImportError:
-    OPENAI_AVAILABLE = False
+    GEMINI_AVAILABLE = False
 
 # 通知コールバック
 _notify_callback: Optional[Callable] = None
@@ -47,13 +48,13 @@ def _get_calendar_service():
         return None
 
 
-def _get_openai_client() -> Optional[OpenAI]:
-    """OpenAIクライアントを取得"""
-    if not OPENAI_AVAILABLE:
+def _get_gemini_client():
+    """Geminiクライアントを取得"""
+    if not GEMINI_AVAILABLE:
         return None
     try:
-        api_key = Config.get_api_key()
-        return OpenAI(api_key=api_key)
+        api_key = Config.get_google_api_key()
+        return genai.Client(api_key=api_key)
     except Exception:
         return None
 
@@ -151,7 +152,7 @@ def _set_alarm(time_str: str, label: str, message: str) -> bool:
 
 def _extract_schedule(to: str, subject: str, body: str) -> Optional[Dict[str, Any]]:
     """メールから予定情報を抽出"""
-    client = _get_openai_client()
+    client = _get_gemini_client()
     if not client:
         return None
 
@@ -195,17 +196,22 @@ def _extract_schedule(to: str, subject: str, body: str) -> Optional[Dict[str, An
 }}"""
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "あなたはメールから予定情報を抽出するアシスタントです。JSONのみを返してください。"},
-                {"role": "user", "content": prompt}
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[types.Part(text=prompt)]
+                )
             ],
-            max_tokens=300,
-            response_format={"type": "json_object"}
+            config=types.GenerateContentConfig(
+                system_instruction="あなたはメールから予定情報を抽出するアシスタントです。JSONのみを返してください。",
+                max_output_tokens=300,
+                response_mime_type="application/json"
+            )
         )
 
-        result_text = response.choices[0].message.content
+        result_text = response.text
         result = json.loads(result_text)
 
         if result.get("has_schedule"):
