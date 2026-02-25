@@ -1,6 +1,5 @@
-# OpenAI API (Realtime, Whisper, Vision)
-openai>=1.0.0
-websockets>=12.0
+# Google Gemini API (Live API, Vision)
+google-genai>=1.0.0
 
 # Tavily API (Web検索用)
 tavily-python>=0.3.0

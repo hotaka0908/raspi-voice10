@@ -91,6 +91,54 @@ class CapabilityExecutor:
 
         return tools
 
+    def get_gemini_tools(self) -> List[Dict[str, Any]]:
+        """Gemini Live API用のツール定義を取得"""
+        function_declarations = []
+
+        for cap in self._capabilities.values():
+            tool_def = cap.get_tool_definition()
+            params = tool_def.get("parameters", {})
+            properties = params.get("properties", {})
+            required = params.get("required", [])
+
+            # Gemini形式のパラメータスキーマ
+            schema_props = {}
+            for prop_name, prop in properties.items():
+                prop_type = prop.get("type", "string").upper()
+                # Geminiの型名に変換
+                if prop_type == "STRING":
+                    prop_type = "STRING"
+                elif prop_type == "INTEGER":
+                    prop_type = "INTEGER"
+                elif prop_type == "NUMBER":
+                    prop_type = "NUMBER"
+                elif prop_type == "BOOLEAN":
+                    prop_type = "BOOLEAN"
+                else:
+                    prop_type = "STRING"
+
+                schema_props[prop_name] = {
+                    "type": prop_type,
+                    "description": prop.get("description", "")
+                }
+
+            func_decl = {
+                "name": tool_def["name"],
+                "description": tool_def["description"],
+            }
+
+            # パラメータがある場合のみ追加
+            if schema_props:
+                func_decl["parameters"] = {
+                    "type": "OBJECT",
+                    "properties": schema_props,
+                    "required": required if required else []
+                }
+
+            function_declarations.append(func_decl)
+
+        return [{"function_declarations": function_declarations}]
+
 
 # シングルトンインスタンス
 _executor: Optional[CapabilityExecutor] = None

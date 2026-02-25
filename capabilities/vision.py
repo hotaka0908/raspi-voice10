@@ -13,7 +13,8 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
-from openai import OpenAI
+from google import genai
+from google.genai import types
 
 from .base import Capability, CapabilityCategory, CapabilityResult
 from config import Config
@@ -22,8 +23,8 @@ from config import Config
 # カメラ排他制御用ロック
 camera_lock = threading.Lock()
 
-# OpenAIクライアント（Vision API用）
-_openai_client = None
+# Geminiクライアント（Vision API用）
+_gemini_client = None
 
 
 # 直前の撮影コンテキスト
@@ -71,12 +72,12 @@ def _save_capture_context(image_data: bytes, image_base64: str,
     )
 
 
-def get_openai_client():
-    """OpenAIクライアントを取得（遅延初期化）"""
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = OpenAI(api_key=Config.get_api_key())
-    return _openai_client
+def get_gemini_client():
+    """Geminiクライアントを取得（遅延初期化）"""
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=Config.get_google_api_key())
+    return _gemini_client
 
 
 class CameraCapture(Capability):
@@ -145,35 +146,34 @@ promptで質問を渡すと、見たものについてその質問に答える""
 
         # 画像分析（ロック外で実行）
         try:
-            client = get_openai_client()
+            client = get_gemini_client()
 
             # 画像をBase64エンコード
             image_base64 = base64.b64encode(image_data).decode('utf-8')
 
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": prompt + "\n\n日本語で回答してください。音声で読み上げるため、1-2文程度の簡潔な説明をお願いします。"
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_base64}",
-                                    "detail": "auto"
-                                }
-                            }
+            # Gemini Vision APIで画像分析
+            response = client.models.generate_content(
+                model=Config.VISION_MODEL,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part(text=prompt + "\n\n日本語で回答してください。音声で読み上げるため、1-2文程度の簡潔な説明をお願いします。"),
+                            types.Part(
+                                inline_data=types.Blob(
+                                    mime_type="image/jpeg",
+                                    data=image_data
+                                )
+                            )
                         ]
-                    }
+                    )
                 ],
-                max_tokens=300
+                config=types.GenerateContentConfig(
+                    max_output_tokens=300
+                )
             )
 
-            brief_analysis = response.choices[0].message.content
+            brief_analysis = response.text
 
             # 撮影コンテキストを保存（後で「詳しく」と聞かれた時用）
             _save_capture_context(image_data, image_base64, brief_analysis, prompt)
@@ -217,5 +217,5 @@ __all__ = [
     'get_last_capture',
     'clear_last_capture',
     'LastCaptureContext',
-    'get_openai_client',
+    'get_gemini_client',
 ]

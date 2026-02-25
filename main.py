@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-raspi-voice7 - OpenAI Realtime API版 Capability UX ベースの音声AIアシスタント
+raspi-voice10 - Gemini Live API版 Capability UX ベースの音声AIアシスタント
 
 ユーザーの意図を理解し、適切な能力を選択・組み合わせ、
 世界を代行して実行する「翻訳層」として機能する。
@@ -24,7 +24,7 @@ import numpy as np
 from config import Config
 from core import (
     AudioHandler,
-    OpenAIRealtimeClient,
+    GeminiRealtimeClient,
     generate_startup_sound,
     generate_notification_sound,
     generate_reset_sound,
@@ -101,7 +101,7 @@ DOUBLE_CLICK_THRESHOLD = 0.5  # ダブルクリック判定時間（秒）
 # ビデオ通話状態
 _signaling: Optional[FirebaseSignaling] = None
 _pending_incoming_call: Optional[dict] = None
-_openai_client: Optional[OpenAIRealtimeClient] = None
+_gemini_client: Optional[GeminiRealtimeClient] = None
 
 
 def signal_handler(sig, frame):
@@ -163,7 +163,7 @@ def start_videocall_from_raspi() -> bool:
 
 async def _start_outgoing_call() -> bool:
     """発信処理（非同期）"""
-    global _signaling, _openai_client
+    global _signaling, _gemini_client
 
     if not _signaling:
         return False
@@ -576,27 +576,33 @@ def on_voice_message_received(message):
 
 
 def transcribe_audio(wav_data: bytes) -> Optional[str]:
-    """OpenAI Whisper APIで音声を文字起こし"""
-    from openai import OpenAI
+    """Gemini APIで音声を文字起こし"""
+    from google import genai
+    from google.genai import types
 
     try:
-        client = OpenAI(api_key=Config.get_api_key())
+        client = genai.Client(api_key=Config.get_google_api_key())
 
-        # 一時ファイルに保存
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(wav_data)
-            temp_path = f.name
-
-        try:
-            with open(temp_path, "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="ja"
+        # Gemini APIで音声を文字起こし
+        response = client.models.generate_content(
+            model=Config.VISION_MODEL,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(text="この音声を日本語でテキストに書き起こしてください。音声の内容のみを返してください。"),
+                        types.Part(
+                            inline_data=types.Blob(
+                                mime_type="audio/wav",
+                                data=wav_data
+                            )
+                        )
+                    ]
                 )
-            return transcript.text.strip() if transcript.text else None
-        finally:
-            os.unlink(temp_path)
+            ]
+        )
+
+        return response.text.strip() if response.text else None
 
     except Exception:
         return None
@@ -664,7 +670,7 @@ def record_voice_message() -> Optional[io.BytesIO]:
     return wav_buffer
 
 
-def send_recorded_voice_message(client: OpenAIRealtimeClient) -> bool:
+def send_recorded_voice_message(client: GeminiRealtimeClient) -> bool:
     """録音した音声をスマホに送信"""
     client.reset_voice_message_mode()
 
@@ -689,7 +695,7 @@ def send_recorded_voice_message(client: OpenAIRealtimeClient) -> bool:
         return False
 
 
-async def audio_input_loop(client: OpenAIRealtimeClient, audio_handler: AudioHandler):
+async def audio_input_loop(client: GeminiRealtimeClient, audio_handler: AudioHandler):
     """音声入力ループ"""
     global running, button, is_recording, _pending_incoming_call, last_button_press_time
     chunk_count = 0
@@ -825,7 +831,7 @@ async def main_async():
         play_callback=audio_handler.play_audio_buffer
     )
 
-    client = OpenAIRealtimeClient(audio_handler)
+    client = GeminiRealtimeClient(audio_handler)
     receive_task = None
     input_task = None
     first_start = True
@@ -913,7 +919,7 @@ async def main_async():
 
                 if first_start:
                     print("\n" + "=" * 50)
-                    print("raspi-voice7 起動 (OpenAI Realtime API)")
+                    print("raspi-voice10 起動 (Gemini Live API)")
                     print("=" * 50)
                     print("ボタンを押して話しかけてください")
                     print("=" * 50 + "\n")
@@ -966,7 +972,7 @@ def main():
 
     # APIキー確認
     try:
-        Config.get_api_key()
+        Config.get_google_api_key()
     except ValueError as e:
         print(f"エラー: {e}")
         sys.exit(1)
