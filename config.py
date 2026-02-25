@@ -17,7 +17,7 @@ class Config:
     """アプリケーション設定"""
 
     # Gemini Live API設定
-    MODEL = "gemini-2.0-flash-live-001"
+    MODEL = "gemini-2.0-flash-live"  # Live API用モデル
     VISION_MODEL = "gemini-2.0-flash"  # Vision API用モデル
     VOICE = "Aoede"  # Gemini voices: Puck, Charon, Kore, Fenrir, Aoede
 

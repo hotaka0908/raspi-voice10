@@ -5,8 +5,6 @@ Gemini Live APIクライアント
 """
 
 import asyncio
-import base64
-import json
 import time
 import logging
 from typing import Optional, Callable, Any, Dict, List
@@ -16,7 +14,7 @@ from google.genai import types
 
 from config import Config
 from prompts import get_system_prompt
-from capabilities import get_executor, CapabilityResult
+from capabilities import get_executor
 
 # ロガー設定（main.pyと同じロガーを使用）
 logger = logging.getLogger("conversation")
@@ -49,8 +47,7 @@ class GeminiRealtimeClient:
         self.voice_message_mode = False
         self.voice_message_timestamp = None
 
-        # 音声バッファ（録音中の音声を蓄積）
-        self._audio_buffer = []
+        # 録音状態
         self._is_recording = False
 
     def _get_session_config(self) -> Dict[str, Any]:
@@ -58,14 +55,13 @@ class GeminiRealtimeClient:
         return {
             "response_modalities": ["AUDIO"],
             "system_instruction": get_system_prompt(),
-            "speech_config": {
-                "voice_config": {
-                    "prebuilt_voice_config": {
-                        "voice_name": Config.VOICE
-                    }
-                },
-                "language_code": "ja-JP",
-            },
+            "speech_config": types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=Config.VOICE
+                    )
+                )
+            ),
             "tools": self.executor.get_gemini_tools(),
         }
 
@@ -97,7 +93,6 @@ class GeminiRealtimeClient:
 
     async def send_activity_start(self) -> None:
         """音声活動開始を通知"""
-        self._audio_buffer = []
         self._is_recording = True
 
     async def send_activity_end(self) -> None:
@@ -108,19 +103,6 @@ class GeminiRealtimeClient:
         self._is_recording = False
 
         try:
-            # 蓄積した音声をまとめて送信
-            if self._audio_buffer:
-                combined_audio = b''.join(self._audio_buffer)
-                self._audio_buffer = []
-
-                # Gemini Live APIにリアルタイム入力を送信
-                await self.session.send_realtime_input(
-                    audio=types.Blob(
-                        data=combined_audio,
-                        mime_type="audio/pcm;rate=16000"
-                    )
-                )
-
             # アクティビティ終了を通知（ターン完了）
             await self.session.send_client_content(
                 turn_complete=True
@@ -129,17 +111,22 @@ class GeminiRealtimeClient:
             logger.error(f"activity_end送信エラー: {e}")
 
     async def clear_input_buffer(self) -> None:
-        """入力バッファをクリア"""
-        self._audio_buffer = []
+        """入力バッファをクリア（Geminiでは特に処理なし）"""
+        pass
 
     async def send_audio_chunk(self, audio_data: bytes) -> None:
-        """音声チャンクを送信"""
+        """音声チャンクをリアルタイムで送信"""
         if not self.is_connected or not self.session:
             return
 
         if self._is_recording:
-            # バッファに蓄積（send_activity_endで送信）
-            self._audio_buffer.append(audio_data)
+            try:
+                # Gemini Live APIにリアルタイムで音声を送信
+                await self.session.send_realtime_input(
+                    audio={"data": audio_data, "mime_type": "audio/pcm"}
+                )
+            except Exception as e:
+                logger.error(f"音声送信エラー: {e}")
 
     async def send_text_message(self, text: str) -> None:
         """テキストメッセージを送信（アラーム通知用）"""
@@ -148,10 +135,7 @@ class GeminiRealtimeClient:
 
         try:
             await self.session.send_client_content(
-                turns=types.Content(
-                    role="user",
-                    parts=[types.Part(text=text)]
-                ),
+                turns={"parts": [{"text": text}]},
                 turn_complete=True
             )
         except Exception as e:
